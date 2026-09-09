@@ -50,6 +50,12 @@ Progetta le etichette visivamente, compila i campi (o scansionali) e stampa via 
 - [Node.js](https://nodejs.org) 18+ (consigliato 20+)
 - Windows per la stampa USB tramite nome stampante — la rete (IP) funziona ovunque
 
+## ⬇️ Installazione
+
+- **Windows / Linux / macOS** — scarica l'app per il tuo sistema dall'[ultima release](https://github.com/dextsamu/labelforge/releases/latest).
+- **Arch Linux (AUR)** — `yay -S labelforge-bin` (pacchetto community: [labelforge-bin](https://aur.archlinux.org/packages/labelforge-bin), grazie @gyfooya).
+- **Dai sorgenti** — vedi Avvio rapido qui sotto.
+
 ## 🚀 Avvio rapido (GUI)
 
 ```bash
@@ -193,6 +199,11 @@ porta, anche virtuali); via rete su porta 9100; su Linux/Mac scrivendo sul devic
 
 > `npm audit` può segnalare avvisi dagli strumenti di sviluppo (Electron/builder). Non finiscono
 > nell'app e si possono ignorare — **non** lanciare `npm audit fix --force` (rompe il build).
+
+## 🙌 Crediti
+
+Grazie a tutti coloro che segnalano problemi e contribuiscono. Un grazie speciale a **@gyfooya**
+per il pacchetto [AUR di Arch Linux](https://aur.archlinux.org/packages/labelforge-bin) e i primi feedback.
 
 ## 📄 Licenza
 

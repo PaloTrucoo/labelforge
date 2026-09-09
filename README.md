@@ -50,6 +50,12 @@ Design labels visually, fill fields (or scan them), and print over network or US
 - [Node.js](https://nodejs.org) 18+ (20+ recommended)
 - Windows for USB printing by printer name — network (IP) works everywhere
 
+## ⬇️ Install
+
+- **Windows / Linux / macOS** — download the app for your OS from the [latest release](https://github.com/dextsamu/labelforge/releases/latest).
+- **Arch Linux (AUR)** — `yay -S labelforge-bin` (community package: [labelforge-bin](https://aur.archlinux.org/packages/labelforge-bin), thanks @gyfooya).
+- **From source** — see Quick start below.
+
 ## 🚀 Quick start (GUI)
 
 ```bash
@@ -190,6 +196,11 @@ If labels don't stop at the tear bar, run `calibrate` and tune `tear_off` in the
 
 > `npm audit` may report warnings from the dev tools (Electron/builder). They don't ship in the app
 > and can be ignored — **do not** run `npm audit fix --force` (it breaks the build).
+
+## 🙌 Credits
+
+Thanks to everyone who reports issues and contributes. Special thanks to **@gyfooya** for the
+Arch Linux [AUR package](https://aur.archlinux.org/packages/labelforge-bin) and early feedback.
 
 ## 📄 License
 

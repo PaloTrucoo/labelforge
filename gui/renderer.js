@@ -495,6 +495,9 @@ async function selectTemplate(file) {
   el('copies').value = defaultCopies || 1;
   updatePrintPreview();
   window.zebra.saveSettings({ lastTemplate: file });
+  // Se siamo in modalità Editor, ricarica l'editor con il modello appena scelto
+  // (altrimenti si aggiornerebbe solo l'anteprima). Fix issue #1.
+  if (el('editorView').style.display !== 'none') { editing = null; openEditor(rawTemplate); }
 }
 
 /* ============================ EDITOR ============================ */

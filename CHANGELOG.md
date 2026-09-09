@@ -2,6 +2,11 @@
 
 Tutte le modifiche rilevanti a LabelForge. / All notable changes to LabelForge.
 
+## v1.16.1
+- 🐛 Fix (issue #1, grazie @gyfooya): in modalità Editor, selezionando un altro modello ora si
+  ricarica l'editor con quel modello (prima si aggiornava solo l'anteprima e serviva riclickare
+  "Editor"). / Selecting a template while in Editor mode now reloads the editor with it.
+
 ## v1.16.0
 - 🔌 **Integrazione**: print server HTTP (`POST /print`, `GET /templates`, `GET /health`, token opzionale, CORS)
   e **watch-folder** (deposita un file JSON → stampa). Avviabili da CLI (`serve`/`watch`) o dal pannello
