@@ -1,0 +1,354 @@
+diff --git a/gui/barcode.js b/gui/barcode.js
+index 3caeaaf..805e061 100644
+--- a/gui/barcode.js
++++ b/gui/barcode.js
+@@ -168,7 +168,38 @@
+     return { svg: out, width: cursor - x };
+   }
+ 
+-  const api = { encode128B, code128SVG, encode39, code39SVG, encodeEAN13, ean13SVG, ean13CheckDigit, encode93, code93SVG, PATTERNS };
++  // ---------------- Allineamento (centrato/destro) ----------------
++  // Calcola la larghezza codificata (in "moduli", non in mm) per i tipi di barcode
++  // gestiti qui. Ritorna null se il tipo non è supportato o il testo non è valido
++  // (es. EAN-13 con lunghezza errata): in quel caso il chiamante deve usare x_mm invariato.
++  function widthModules(type, text) {
++    switch (type) {
++      case 'barcode128': return encode128B(text).reduce((a, b) => a + b, 0);
++      case 'code39': return encode39(text).reduce((a, b) => a + b, 0);
++      case 'code93': return encode93(text).reduce((a, b) => a + b, 0);
++      case 'ean13': { const e = encodeEAN13(text); return e ? e.bits.length : null; }
++      default: return null;
++    }
++  }
++
++  // Dato un x_mm di partenza (bordo sinistro "naturale"), un modulo in mm e una
++  // "box" di riferimento larga box_width_mm che inizia anch'essa a x_mm, ritorna
++  // il nuovo x_mm che centra (o allinea a destra) il barcode dentro quella box.
++  // Se align è 'left'/assente, o manca box_width_mm, o il tipo non è calcolabile,
++  // ritorna x_mm invariato (nessuna sorpresa per template esistenti).
++  function alignedX(type, text, xMm, moduleMm, align, boxWidthMm) {
++    const x = Number(xMm) || 0;
++    if (!align || align === 'left' || !boxWidthMm || !moduleMm) return x;
++    const mods = widthModules(type, text);
++    if (mods == null) return x;
++    const widthMm = mods * moduleMm;
++    const slack = Math.max(0, Number(boxWidthMm) - widthMm);
++    if (align === 'center') return x + slack / 2;
++    if (align === 'right') return x + slack;
++    return x;
++  }
++
++  const api = { encode128B, code128SVG, encode39, code39SVG, encodeEAN13, ean13SVG, ean13CheckDigit, encode93, code93SVG, widthModules, alignedX, PATTERNS };
+   if (typeof window !== 'undefined') window.Barcode = api;
+   if (typeof module !== 'undefined' && module.exports) module.exports = api;
+ })();
+diff --git a/gui/i18n.js b/gui/i18n.js
+index 022a5e6..e738b29 100644
+--- a/gui/i18n.js
++++ b/gui/i18n.js
+@@ -157,6 +157,11 @@
+       'p.h': 'Height (mm)',
+       'p.thick': 'Thickness (mm)',
+       'p.font': 'Font',
++      'p.align': 'Alignment',
++      'p.boxw': 'Box width (mm)',
++      'align.left': 'Left',
++      'align.center': 'Center',
++      'align.right': 'Right',
+       'fm.name': 'Field name (without {{}})',
+       'fm.type': 'Type',
+       'fm.typeSelect': 'Dropdown',
+@@ -312,6 +317,11 @@
+       'p.barh': 'Altezza barre (mm)',
+       'p.module': 'Spessore modulo',
+       'p.showtext': 'Mostra testo',
++      'p.align': 'Allineamento',
++      'p.boxw': 'Larghezza box (mm)',
++      'align.left': 'Sinistra',
++      'align.center': 'Centro',
++      'align.right': 'Destra',
+       'p.mag': 'Ingrandimento (1-10)',
+       'p.dmsize': 'Dimensione modulo',
+       'p.w': 'Larghezza (mm)',
+diff --git a/gui/preview.js b/gui/preview.js
+index ef1a6da..11ac6a2 100644
+--- a/gui/preview.js
++++ b/gui/preview.js
+@@ -72,16 +72,17 @@
+         const text = fillPlaceholders(el.text, data) || '000';
+         const h = el.bar_height_mm || (el.bar_height_dots ? (el.bar_height_dots / dpi) * 25.4 : 10);
+         const moduleMm = (el.module_width || 2) / (dpi / 25.4); // modulo reale in mm
+-        let out, w;
++        let out, w, drawX = x;
+         if (typeof window !== 'undefined' && window.Barcode) {
+-          const r = window.Barcode.code128SVG(text, x, y, h, moduleMm);
++          drawX = window.Barcode.alignedX('barcode128', text, x, moduleMm, el.align, el.box_width_mm);
++          const r = window.Barcode.code128SVG(text, drawX, y, h, moduleMm);
+           out = r.svg; w = r.width;
+         } else {
+           w = Math.max(20, (text.length || 6) * 2.2);
+           out = barcodeBars(text, x, y, w, h);
+         }
+         if (el.show_text !== false) {
+-          out += `<text x="${(x + w / 2).toFixed(2)}" y="${(y + h + 3).toFixed(2)}" font-size="2.6" font-family="monospace" text-anchor="middle" fill="#111">${esc(text)}</text>`;
++          out += `<text x="${(drawX + w / 2).toFixed(2)}" y="${(y + h + 3).toFixed(2)}" font-size="2.6" font-family="monospace" text-anchor="middle" fill="#111">${esc(text)}</text>`;
+         }
+         return out;
+       }
+@@ -91,17 +92,18 @@
+         const text = fillPlaceholders(el.text, data) || (el.type === 'ean13' ? '000000000000' : '000');
+         const h = el.bar_height_mm || 10;
+         const moduleMm = (el.module_width || 2) / (dpi / 25.4);
+-        let out = '', w = 20, label = text;
++        let out = '', w = 20, label = text, drawX = x;
+         if (typeof window !== 'undefined' && window.Barcode) {
++          drawX = window.Barcode.alignedX(el.type, text, x, moduleMm, el.align, el.box_width_mm);
+           let r;
+-          if (el.type === 'ean13') r = window.Barcode.ean13SVG(text, x, y, h, moduleMm);
+-          else if (el.type === 'code93') r = window.Barcode.code93SVG(text, x, y, h, moduleMm);
+-          else r = window.Barcode.code39SVG(text, x, y, h, moduleMm);
++          if (el.type === 'ean13') r = window.Barcode.ean13SVG(text, drawX, y, h, moduleMm);
++          else if (el.type === 'code93') r = window.Barcode.code93SVG(text, drawX, y, h, moduleMm);
++          else r = window.Barcode.code39SVG(text, drawX, y, h, moduleMm);
+           if (r) { out = r.svg; w = r.width; if (r.digits) label = r.digits; }
+         }
+         if (!out) out = barcodeBars(text, x, y, Math.max(20, text.length * 2.2), h);
+         if (el.show_text !== false) {
+-          out += `<text x="${(x + w / 2).toFixed(2)}" y="${(y + h + 3).toFixed(2)}" font-size="2.6" font-family="monospace" text-anchor="middle" fill="#111">${esc(label)}</text>`;
++          out += `<text x="${(drawX + w / 2).toFixed(2)}" y="${(y + h + 3).toFixed(2)}" font-size="2.6" font-family="monospace" text-anchor="middle" fill="#111">${esc(label)}</text>`;
+         }
+         return out;
+       }
+diff --git a/gui/renderer.js b/gui/renderer.js
+index 1668c79..9cc37e6 100644
+--- a/gui/renderer.js
++++ b/gui/renderer.js
+@@ -552,12 +552,13 @@ function updateUndoButtons() {
+ }
+ 
+ // Etichette come chiavi i18n (risolte con t() al render).
++const ALIGN_OPTS = [['left', 'align.left'], ['center', 'align.center'], ['right', 'align.right']];
+ const ELEMENT_PROPS = {
+   text: [['text', 'p.text', 'text', 'full'], ['height_mm', 'p.h', 'number'], ['width_mm', 'p.w', 'number'], ['font', 'p.font', 'text']],
+-  barcode128: [['text', 'p.data', 'text', 'full'], ['bar_height_mm', 'p.barh', 'number'], ['module_width', 'p.module', 'number'], ['show_text', 'p.showtext', 'bool']],
+-  code39: [['text', 'p.data', 'text', 'full'], ['bar_height_mm', 'p.barh', 'number'], ['module_width', 'p.module', 'number'], ['show_text', 'p.showtext', 'bool']],
+-  ean13: [['text', 'p.dataDigits', 'text', 'full'], ['bar_height_mm', 'p.barh', 'number'], ['module_width', 'p.module', 'number'], ['show_text', 'p.showtext', 'bool']],
+-  code93: [['text', 'p.data', 'text', 'full'], ['bar_height_mm', 'p.barh', 'number'], ['module_width', 'p.module', 'number'], ['show_text', 'p.showtext', 'bool']],
++  barcode128: [['text', 'p.data', 'text', 'full'], ['bar_height_mm', 'p.barh', 'number'], ['module_width', 'p.module', 'number'], ['show_text', 'p.showtext', 'bool'], ['align', 'p.align', 'select', null, ALIGN_OPTS], ['box_width_mm', 'p.boxw', 'number']],
++  code39: [['text', 'p.data', 'text', 'full'], ['bar_height_mm', 'p.barh', 'number'], ['module_width', 'p.module', 'number'], ['show_text', 'p.showtext', 'bool'], ['align', 'p.align', 'select', null, ALIGN_OPTS], ['box_width_mm', 'p.boxw', 'number']],
++  ean13: [['text', 'p.dataDigits', 'text', 'full'], ['bar_height_mm', 'p.barh', 'number'], ['module_width', 'p.module', 'number'], ['show_text', 'p.showtext', 'bool'], ['align', 'p.align', 'select', null, ALIGN_OPTS], ['box_width_mm', 'p.boxw', 'number']],
++  code93: [['text', 'p.data', 'text', 'full'], ['bar_height_mm', 'p.barh', 'number'], ['module_width', 'p.module', 'number'], ['show_text', 'p.showtext', 'bool'], ['align', 'p.align', 'select', null, ALIGN_OPTS], ['box_width_mm', 'p.boxw', 'number']],
+   datamatrix: [['text', 'p.data', 'text', 'full'], ['magnification', 'p.dmsize', 'number']],
+   qrcode: [['text', 'p.data', 'text', 'full'], ['magnification', 'p.mag', 'number']],
+   box: [['width_mm', 'p.w', 'number'], ['height_mm', 'p.h', 'number'], ['thickness_mm', 'p.thick', 'number']],
+@@ -611,7 +612,7 @@ function renderEditorElements() {
+       const grid = document.createElement('div'); grid.className = 'grid';
+       const common = [['x_mm', 'X (mm)', 'number'], ['y_mm', 'Y (mm)', 'number']];
+       const props = common.concat(ELEMENT_PROPS[elem.type] || []);
+-      props.forEach(([prop, label, kind, span]) => {
++      props.forEach(([prop, label, kind, span, options]) => {
+         const fld = document.createElement('div'); fld.className = 'fld' + (span === 'full' ? ' full' : '');
+         const l = document.createElement('label'); l.textContent = t(label); fld.appendChild(l);
+         let input;
+@@ -619,6 +620,10 @@ function renderEditorElements() {
+           input = document.createElement('select');
+           [['true', t('bool.yes')], ['false', t('bool.no')]].forEach(([v, txt]) => { const o = document.createElement('option'); o.value = v; o.textContent = txt; input.appendChild(o); });
+           input.value = String(elem[prop] !== false);
++        } else if (kind === 'select') {
++          input = document.createElement('select');
++          (options || []).forEach(([v, txt]) => { const o = document.createElement('option'); o.value = v; o.textContent = t(txt); input.appendChild(o); });
++          input.value = elem[prop] || (options && options[0] && options[0][0]) || '';
+         } else {
+           input = document.createElement('input'); input.type = kind === 'number' ? 'number' : 'text'; if (kind === 'number') input.step = '0.5';
+           input.value = elem[prop] ?? '';
+@@ -668,10 +673,11 @@ function readElementRow(row, prevType) {
+     if (prop === 'enabled') { obj.enabled = inp.checked; return; }
+     if (prop === 'show_text') { obj.show_text = (val === 'true'); return; }
+     if (val === '') return;
+-    const numeric = ['x_mm', 'y_mm', 'height_mm', 'width_mm', 'bar_height_mm', 'module_width', 'magnification', 'thickness_mm'];
++    const numeric = ['x_mm', 'y_mm', 'height_mm', 'width_mm', 'bar_height_mm', 'module_width', 'magnification', 'thickness_mm', 'box_width_mm'];
+     obj[prop] = numeric.includes(prop) ? Number(val) : val;
+   });
+   if (obj.enabled === true) delete obj.enabled; // default true: non serve salvarlo
++  if (obj.align === 'left') delete obj.align; // default: non serve salvarlo
+   return obj;
+ }
+ 
+diff --git a/lib/epl.js b/lib/epl.js
+index 763e03e..d12ae11 100644
+--- a/lib/epl.js
++++ b/lib/epl.js
+@@ -5,9 +5,19 @@
+ // Copre testo, Code128/Code39/EAN-13, riquadri e linee. QR/DataMatrix non gestiti qui.
+ 
+ const { mmToDots, fillPlaceholders } = require('./zpl');
++const Barcode = require('../gui/barcode.js');
+ 
+ function esc(s) { return String(s).replace(/"/g, '\\"'); }
+ 
++// Ricalcola x_mm per allineamento centrato/destro (EPL non ha un parametro
++// nativo di alignment per i barcode). Stessa logica usata nell'anteprima.
++function alignedXMm(el, dpi, rawText) {
++  const xMm = (el.x_mm ?? el.x) || 0;
++  const narrow = el.module_width || 2;
++  const moduleMm = narrow / (dpi / 25.4);
++  return Barcode.alignedX(el.type, rawText, xMm, moduleMm, el.align, el.box_width_mm);
++}
++
+ function renderElement(el, dpi, data) {
+   const x = mmToDots(el.x_mm ?? el.x, dpi);
+   const y = mmToDots(el.y_mm ?? el.y, dpi);
+@@ -19,12 +29,14 @@ function renderElement(el, dpi, data) {
+     case 'barcode128':
+     case 'code39':
+     case 'ean13': {
++      const text = fillPlaceholders(el.text, data);
+       const height = el.bar_height_dots || mmToDots(el.bar_height_mm || 10, dpi);
+       const narrow = el.module_width || 2;
+       const wide = narrow * 2;
+       const human = el.show_text === false ? 'N' : 'B';
+       const sym = el.type === 'barcode128' ? '1' : el.type === 'code39' ? '3' : 'E30';
+-      return `B${x},${y},0,${sym},${narrow},${wide},${height},${human},"${esc(fillPlaceholders(el.text, data))}"`;
++      const ax = mmToDots(alignedXMm(el, dpi, text), dpi);
++      return `B${ax},${y},0,${sym},${narrow},${wide},${height},${human},"${esc(text)}"`;
+     }
+     case 'qrcode': {
+       const cell = el.magnification || 4;
+diff --git a/lib/ezpl.js b/lib/ezpl.js
+index c999f4f..8382f07 100644
+--- a/lib/ezpl.js
++++ b/lib/ezpl.js
+@@ -5,9 +5,19 @@
+ // I comandi di disegno sono in stile EPL dentro una cornice ^Q/^W/^L ... E.
+ 
+ const { mmToDots, fillPlaceholders } = require('./zpl');
++const Barcode = require('../gui/barcode.js');
+ 
+ function esc(s) { return String(s).replace(/"/g, '\\"'); }
+ 
++// Ricalcola x_mm per allineamento centrato/destro (EZPL non ha un parametro
++// nativo di alignment per i barcode). Stessa logica usata nell'anteprima.
++function alignedXMm(el, dpi, rawText) {
++  const xMm = (el.x_mm ?? el.x) || 0;
++  const narrow = el.module_width || 2;
++  const moduleMm = narrow / (dpi / 25.4);
++  return Barcode.alignedX(el.type, rawText, xMm, moduleMm, el.align, el.box_width_mm);
++}
++
+ function renderElement(el, dpi, data) {
+   const x = mmToDots(el.x_mm ?? el.x, dpi);
+   const y = mmToDots(el.y_mm ?? el.y, dpi);
+@@ -19,11 +29,13 @@ function renderElement(el, dpi, data) {
+     case 'barcode128':
+     case 'code39':
+     case 'ean13': {
++      const text = fillPlaceholders(el.text, data);
+       const height = el.bar_height_dots || mmToDots(el.bar_height_mm || 10, dpi);
+       const narrow = el.module_width || 2;
+       const wide = narrow * 2;
+       const sym = el.type === 'barcode128' ? '1' : el.type === 'code39' ? '3' : 'E30';
+-      return `B${x},${y},0,${sym},${narrow},${wide},${height},"${esc(fillPlaceholders(el.text, data))}"`;
++      const ax = mmToDots(alignedXMm(el, dpi, text), dpi);
++      return `B${ax},${y},0,${sym},${narrow},${wide},${height},"${esc(text)}"`;
+     }
+     case 'qrcode': {
+       const cell = el.magnification || 4;
+diff --git a/lib/tspl.js b/lib/tspl.js
+index e25ece5..16cb152 100644
+--- a/lib/tspl.js
++++ b/lib/tspl.js
+@@ -7,6 +7,7 @@
+ // dimensione è approssimata rispetto ai mm (a differenza dello ZPL).
+ 
+ const { mmToDots, fillPlaceholders } = require('./zpl');
++const Barcode = require('../gui/barcode.js');
+ 
+ function esc(s) { return String(s).replace(/"/g, '\\"'); }
+ 
+@@ -25,13 +26,21 @@ function renderElement(el, dpi, data) {
+     case 'code39':
+     case 'code93':
+     case 'ean13': {
+-      const text = esc(fillPlaceholders(el.text, data));
++      const raw = fillPlaceholders(el.text, data);
++      const text = esc(raw);
+       const height = el.bar_height_dots || mmToDots(el.bar_height_mm || 10, dpi);
+       const narrow = el.module_width || 2;
+       const wide = narrow * 2;
+       const human = el.show_text === false ? 0 : 1;
+       const sym = el.type === 'barcode128' ? '128' : el.type === 'code39' ? '39' : el.type === 'code93' ? '93' : 'EAN13';
+-      out.push(`BARCODE ${x},${y},"${sym}",${height},${human},0,${narrow},${wide},"${text}"`);
++      // TSPL non ha un parametro nativo di allineamento: ricalcoliamo qui la x di
++      // partenza in base alla larghezza reale codificata (stessa logica dell'anteprima),
++      // così stampa e anteprima restano coerenti.
++      const moduleMm = narrow / (dpi / 25.4);
++      const xMm = (el.x_mm ?? el.x) || 0;
++      const alignedXMm = Barcode.alignedX(el.type, raw, xMm, moduleMm, el.align, el.box_width_mm);
++      const ax = mmToDots(alignedXMm, dpi);
++      out.push(`BARCODE ${ax},${y},"${sym}",${height},${human},0,${narrow},${wide},"${text}"`);
+       break;
+     }
+     case 'qrcode': {
+diff --git a/lib/zpl.js b/lib/zpl.js
+index 0f3651c..ff75a7e 100644
+--- a/lib/zpl.js
++++ b/lib/zpl.js
+@@ -30,6 +30,18 @@ function safeFieldData(text) {
+   return s;
+ }
+ 
++const Barcode = require('../gui/barcode.js');
++
++// Ricalcola x_mm per allineamento centrato/destro su un tipo barcode supportato
++// (stessa logica usata nell'anteprima), dato il testo già risolto (con {{field}}
++// sostituiti, non ancora escapato). Se align è assente/left o box_width_mm manca,
++// o il tipo non è calcolabile, ritorna x_mm invariato.
++function alignedXMm(el, dpi, rawText) {
++  const xMm = (el.x_mm ?? el.x) || 0;
++  const moduleMm = (el.module_width || 2) / (dpi / 25.4);
++  return Barcode.alignedX(el.type, rawText, xMm, moduleMm, el.align, el.box_width_mm);
++}
++
+ function renderElement(el, dpi, data) {
+   const x = mmToDots(el.x_mm ?? el.x, dpi);
+   const y = mmToDots(el.y_mm ?? el.y, dpi);
+@@ -59,7 +71,8 @@ function renderElement(el, dpi, data) {
+       const height = el.bar_height_dots || mmToDots(el.bar_height_mm || 10, dpi);
+       const printText = el.show_text === false ? 'N' : 'Y';
+       const moduleWidth = el.module_width || 2;
+-      lines.push(`^FO${x},${y}`);
++      const ax = mmToDots(alignedXMm(el, dpi, text), dpi);
++      lines.push(`^FO${ax},${y}`);
+       lines.push(`^BY${moduleWidth}`);
+       lines.push(`^BCN,${height},${printText},N,N`);
+       lines.push(`^FD${text}^FS`);
+@@ -70,7 +83,8 @@ function renderElement(el, dpi, data) {
+       const height = el.bar_height_dots || mmToDots(el.bar_height_mm || 10, dpi);
+       const printText = el.show_text === false ? 'N' : 'Y';
+       const moduleWidth = el.module_width || 2;
+-      lines.push(`^FO${x},${y}`);
++      const ax = mmToDots(alignedXMm(el, dpi, text), dpi);
++      lines.push(`^FO${ax},${y}`);
+       lines.push(`^BY${moduleWidth}`);
+       lines.push(`^B3N,N,${height},${printText},N`);
+       lines.push(`^FD${text}^FS`);
+@@ -81,7 +95,8 @@ function renderElement(el, dpi, data) {
+       const height = el.bar_height_dots || mmToDots(el.bar_height_mm || 10, dpi);
+       const printText = el.show_text === false ? 'N' : 'Y';
+       const moduleWidth = el.module_width || 2;
+-      lines.push(`^FO${x},${y}`);
++      const ax = mmToDots(alignedXMm(el, dpi, text), dpi);
++      lines.push(`^FO${ax},${y}`);
+       lines.push(`^BY${moduleWidth}`);
+       lines.push(`^BEN,${height},${printText},N`);
+       lines.push(`^FD${text}^FS`);
+@@ -92,7 +107,8 @@ function renderElement(el, dpi, data) {
+       const height = el.bar_height_dots || mmToDots(el.bar_height_mm || 10, dpi);
+       const printText = el.show_text === false ? 'N' : 'Y';
+       const moduleWidth = el.module_width || 2;
+-      lines.push(`^FO${x},${y}`);
++      const ax = mmToDots(alignedXMm(el, dpi, text), dpi);
++      lines.push(`^FO${ax},${y}`);
+       lines.push(`^BY${moduleWidth}`);
+       lines.push(`^BAN,${height},${printText},N`);
+       lines.push(`^FD${text}^FS`);
